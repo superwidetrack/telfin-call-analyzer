@@ -1,5 +1,8 @@
 import os
 import requests
+import openai
+import asyncio
+from telegram import Bot
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -354,35 +357,140 @@ def transcribe_with_yandex(api_key, audio_data):
         print(f"Unexpected error during transcription: {e}")
         return None
 
-def analyze_with_gpt():
+def analyze_with_gpt(transcript):
     """
-    Placeholder for analyze_with_gpt function.
-    To be implemented in future iterations.
+    Analyze call transcript using OpenAI GPT-4 for quality assessment.
+    
+    Args:
+        transcript (str): Transcribed text from the call
+    
+    Returns:
+        str: Structured analysis report if successful, None if failed
     """
-    pass
+    openai_api_key = os.environ.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    
+    if not openai_api_key or openai_api_key == "your_openai_api_key":
+        print("Error: OPENAI_API_KEY not configured")
+        return None
+        
+    if not transcript:
+        print("Error: No transcript provided for analysis")
+        return None
+    
+    client = openai.OpenAI(api_key=openai_api_key)
+    
+    prompt = f"""Ты — строгий, но справедливый руководитель отдела контроля качества в цветочном магазине "29ROZ".
+Твоя задача — проанализировать разговор менеджера с клиентом и дать четкую, структурированную обратную связь.
 
-def send_telegram_report():
+**Транскрипция разговора:**
+---
+{transcript}
+---
+
+**Проанализируй диалог по следующему чек-листу:**
+1.  **Приветствие:** Поздоровался, представился, назвал компанию "29ROZ"?
+2.  **Выявление потребности:** Узнал повод (день рождения, свидание), бюджет, предпочтения по цветам/стилю?
+3.  **Презентация:** Предложил конкретные варианты букетов? Рассказал о свежести цветов, уникальности композиции?
+4.  **Допродажа:** Предложил сопутствующие товары (открытка, ваза, шарики, мягкая игрушка)?
+5.  **Оформление заказа:** Четко проговорил и зафиксировал имя, адрес, телефон получателя и время доставки?
+6.  **Завершение:** Поблагодарил за заказ, позитивно завершил диалог?
+
+**Сформируй отчет СТРОГО в следующем формате:**
+
+⭐ **Общая оценка:** [поставь оценку от 1 до 10]
+
+✅ **Что было хорошо:**
+- [Краткий пункт 1]
+- [Краткий пункт 2]
+
+❌ **Зоны роста:**
+- [Конкретный пункт, что нужно улучшить]
+- [Конкретный пункт, что нужно улучшить]
+
+💡 **Рекомендация:**
+- [Один главный совет менеджеру, что изменить в следующем звонке]"""
+    
+    try:
+        print("Sending transcript to OpenAI GPT-4 for analysis...")
+        
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+        
+        analysis = response.choices[0].message.content
+        print(f"GPT-4 analysis completed: {len(analysis)} characters")
+        return analysis
+        
+    except Exception as e:
+        print(f"Error during GPT-4 analysis: {e}")
+        return None
+
+async def send_telegram_report(report_text):
     """
-    Placeholder for send_telegram_report function.
-    To be implemented in future iterations.
+    Send analysis report to Telegram chat.
+    
+    Args:
+        report_text (str): Formatted report text to send
+    
+    Returns:
+        bool: True if successful, False if failed
     """
-    pass
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
+    
+    if not bot_token or bot_token == "your_telegram_bot_token":
+        print("Error: TELEGRAM_BOT_TOKEN not configured")
+        return False
+        
+    if not chat_id or chat_id == "your_telegram_chat_id":
+        print("Error: TELEGRAM_CHAT_ID not configured")
+        return False
+        
+    if not report_text:
+        print("Error: No report text provided")
+        return False
+    
+    try:
+        print(f"Sending report to Telegram chat {chat_id}...")
+        
+        bot = Bot(token=bot_token)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=report_text,
+            parse_mode='Markdown'
+        )
+        
+        print("✅ Report sent to Telegram successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"Error sending Telegram report: {e}")
+        return False
 
 def main():
     """
-    Main function to test Telphin API integration and recording transcription.
+    Main function for automated call analysis system.
+    Processes all available calls and sends analysis reports to Telegram.
     """
     print("=== Automated Call Analysis System for 29ROZ ===")
-    print("Testing Telphin API integration and recording transcription...")
+    print("Starting automated call analysis...")
     
-    hostname = os.getenv("TELFIN_HOSTNAME")
-    login = os.getenv("TELFIN_LOGIN")
-    password = os.getenv("TELFIN_PASSWORD")
-    yandex_api_key = os.getenv("YANDEX_API_KEY")
+    hostname = os.environ.get("TELFIN_HOSTNAME") or os.getenv("TELFIN_HOSTNAME")
+    login = os.environ.get("TELFIN_LOGIN") or os.getenv("TELFIN_LOGIN")
+    password = os.environ.get("TELFIN_PASSWORD") or os.getenv("TELFIN_PASSWORD")
+    yandex_api_key = os.environ.get("YANDEX_API_KEY") or os.getenv("YANDEX_API_KEY")
     
     if not hostname or not login or not password:
-        print("Error: TELFIN_HOSTNAME, TELFIN_LOGIN and TELFIN_PASSWORD must be set in .env file")
-        print("Please copy .env.template to .env and fill in your credentials")
+        print("Error: TELFIN_HOSTNAME, TELFIN_LOGIN and TELFIN_PASSWORD must be set as environment variables")
+        return
+    
+    if not yandex_api_key:
+        print("Error: YANDEX_API_KEY must be set as environment variable")
         return
     
     print(f"\n1. Authenticating with Telphin API at {hostname}...")
@@ -399,68 +507,79 @@ def main():
         print("Failed to retrieve calls.")
         return
     
-    print(f"\n3. Results:")
-    print(f"Total calls retrieved: {len(calls)}")
+    print(f"\n3. Processing {len(calls)} calls...")
     
-    if calls:
-        print("\nFirst few calls:")
-        for i, call in enumerate(calls[:3]):
-            print(f"Call {i+1}:")
-            print(f"  Call UUID: {call.get('call_uuid', 'N/A')}")
-            print(f"  Start Time: {call.get('start_time_gmt', 'N/A')}")
-            print(f"  Duration: {call.get('duration', 'N/A')}")
-            print(f"  From: {call.get('from_username', 'N/A')}")
-            print(f"  To: {call.get('to_username', 'N/A')}")
-            print(f"  Flow: {call.get('flow', 'N/A')}")
-            print(f"  Result: {call.get('result', 'N/A')}")
-            print()
+    if not calls:
+        print("No calls found to process.")
+        return
+    
+    processed_count = 0
+    successful_reports = 0
+    
+    for i, call in enumerate(calls):
+        call_uuid = call.get('call_uuid')
         
-        if yandex_api_key and yandex_api_key != "your_yandex_api_key":
-            print(f"\n4. Testing recording download and transcription...")
+        if not call_uuid:
+            continue
             
-            recording_found = False
-            max_attempts = min(50, len(calls))  # Try up to 50 calls or all available calls
+        print(f"\nProcessing call {i+1}/{len(calls)}: {call_uuid}")
+        print(f"  Details: {call.get('start_time_gmt')} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
+        
+        audio_data = download_recording(hostname, token, call_uuid)
+        
+        if audio_data:
+            processed_count += 1
+            print(f"✅ Recording found! Processing...")
             
-            for i in range(max_attempts):
-                call = calls[i]
-                call_uuid = call.get('call_uuid')
+            # Transcribe with Yandex SpeechKit
+            transcribed_text = transcribe_with_yandex(yandex_api_key, audio_data)
+            
+            if transcribed_text:
+                print(f"✅ Transcription completed")
                 
-                if not call_uuid:
-                    continue
-                    
-                print(f"\nAttempt {i+1}: Processing call {call_uuid}")
-                print(f"  Call details: {call.get('start_time_gmt')} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
+                analysis = analyze_with_gpt(transcribed_text)
                 
-                audio_data = download_recording(hostname, token, call_uuid)
-                
-                if audio_data:
-                    recording_found = True
-                    print(f"✅ Found recording! Proceeding with transcription...")
+                if analysis:
+                    print(f"✅ GPT-4 analysis completed")
                     
-                    # Transcribe with Yandex SpeechKit
-                    transcribed_text = transcribe_with_yandex(yandex_api_key, audio_data)
+                    final_report = f"""📞 **Анализ звонка 29ROZ**
+
+🔍 **Детали звонка:**
+- **ID:** `{call_uuid}`
+- **Дата:** {call.get('start_time_gmt', 'N/A')}
+- **Длительность:** {call.get('duration', 'N/A')} сек
+- **Направление:** {call.get('flow', 'N/A')}
+- **Результат:** {call.get('result', 'N/A')}
+
+📝 **Транскрипция:**
+```
+{transcribed_text}
+```
+
+{analysis}
+
+---
+*Автоматический анализ системы 29ROZ Call Analyzer*"""
                     
-                    if transcribed_text:
-                        print(f"\n5. Transcription Result:")
-                        print("=" * 50)
-                        print(transcribed_text)
-                        print("=" * 50)
-                        print("Recording download and transcription test completed successfully!")
-                        break
+                    telegram_success = asyncio.run(send_telegram_report(final_report))
+                    
+                    if telegram_success:
+                        successful_reports += 1
+                        print("✅ Report sent to Telegram successfully!")
                     else:
-                        print("❌ Transcription failed, trying next call...")
-                        continue
+                        print("❌ Failed to send Telegram report")
                 else:
-                    print(f"❌ No recording available for this call")
-                    continue
-            
-            if not recording_found:
-                print(f"\n❌ No recordings found in the first {max_attempts} calls.")
-                print("This might be normal - not all calls have recordings available.")
+                    print("❌ GPT-4 analysis failed")
+            else:
+                print("❌ Transcription failed")
         else:
-            print("\n4. Skipping recording transcription test (YANDEX_API_KEY not configured)")
+            print(f"❌ No recording available")
     
-    print("\nTelphin API integration test completed successfully!")
+    print(f"\n=== Analysis Complete ===")
+    print(f"Total calls checked: {len(calls)}")
+    print(f"Calls with recordings: {processed_count}")
+    print(f"Successful reports sent: {successful_reports}")
+    print("Call analysis cycle completed.")
 
 if __name__ == "__main__":
     main()
