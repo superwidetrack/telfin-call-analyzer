@@ -4,27 +4,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def authenticate_telfin(login, password):
+def authenticate_telfin(hostname, login, password):
     """
     Authenticate with Telphin API and get bearer token.
     
     Args:
+        hostname (str): Telphin hostname
         login (str): Telphin login
         password (str): Telphin password
     
     Returns:
         str: Bearer token if successful, None if failed
     """
-    auth_url = "https://apiproxy.telphin.ru/api/ver1.0/auth/"
+    auth_url = f"https://{hostname}:443/oauth/token"
     
     auth_data = {
         "grant_type": "client_credentials",
-        "client_id": login,
-        "client_secret": password
+        "application_id": login,
+        "application_secret": password
+    }
+    
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
     }
     
     try:
-        response = requests.post(auth_url, data=auth_data)
+        response = requests.post(auth_url, data=auth_data, headers=headers)
         response.raise_for_status()
         
         auth_result = response.json()
@@ -44,30 +49,47 @@ def authenticate_telfin(login, password):
         print(f"Unexpected error during authentication: {e}")
         return None
 
-def get_recent_calls(token):
+def get_recent_calls(hostname, token, client_id="@me"):
     """
     Get list of recent calls from Telphin API.
     
     Args:
+        hostname (str): Telphin hostname
         token (str): Bearer token from authentication
+        client_id (str): Client ID, defaults to "@me"
     
     Returns:
         list: List of calls if successful, None if failed
     """
-    calls_url = "https://apiproxy.telphin.ru/api/ver1.0/client/@me/calls/"
+    from datetime import datetime, timedelta
+    
+    end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    calls_url = f"https://{hostname}/api/ver1.0/client/{client_id}/calls/"
     
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
     
+    params = {
+        "start_datetime": start_datetime,
+        "end_datetime": end_datetime,
+        "per_page": 100
+    }
+    
     try:
-        response = requests.get(calls_url, headers=headers)
+        response = requests.get(calls_url, headers=headers, params=params)
         response.raise_for_status()
         
         calls_data = response.json()
         
-        if isinstance(calls_data, list):
+        if isinstance(calls_data, dict) and 'calls' in calls_data:
+            calls_list = calls_data['calls']
+            print(f"Successfully retrieved {len(calls_list)} calls")
+            return calls_list
+        elif isinstance(calls_data, list):
             print(f"Successfully retrieved {len(calls_data)} calls")
             return calls_data
         elif isinstance(calls_data, dict) and 'results' in calls_data:
@@ -76,6 +98,7 @@ def get_recent_calls(token):
             return calls_list
         else:
             print("Unexpected response format for calls data")
+            print(f"Debug: Response keys = {list(calls_data.keys()) if isinstance(calls_data, dict) else 'Not a dict'}")
             return None
             
     except requests.exceptions.RequestException as e:
@@ -120,23 +143,24 @@ def main():
     print("=== Automated Call Analysis System for 29ROZ ===")
     print("Testing Telphin API integration...")
     
+    hostname = os.getenv("TELFIN_HOSTNAME")
     login = os.getenv("TELFIN_LOGIN")
     password = os.getenv("TELFIN_PASSWORD")
     
-    if not login or not password:
-        print("Error: TELFIN_LOGIN and TELFIN_PASSWORD must be set in .env file")
+    if not hostname or not login or not password:
+        print("Error: TELFIN_HOSTNAME, TELFIN_LOGIN and TELFIN_PASSWORD must be set in .env file")
         print("Please copy .env.template to .env and fill in your credentials")
         return
     
-    print("\n1. Authenticating with Telphin API...")
-    token = authenticate_telfin(login, password)
+    print(f"\n1. Authenticating with Telphin API at {hostname}...")
+    token = authenticate_telfin(hostname, login, password)
     
     if not token:
         print("Authentication failed. Cannot proceed.")
         return
     
     print("\n2. Retrieving recent calls...")
-    calls = get_recent_calls(token)
+    calls = get_recent_calls(hostname, token)
     
     if calls is None:
         print("Failed to retrieve calls.")
@@ -149,12 +173,13 @@ def main():
         print("\nFirst few calls:")
         for i, call in enumerate(calls[:3]):
             print(f"Call {i+1}:")
-            print(f"  ID: {call.get('id', 'N/A')}")
-            print(f"  Date: {call.get('date', 'N/A')}")
+            print(f"  Call UUID: {call.get('call_uuid', 'N/A')}")
+            print(f"  Start Time: {call.get('start_time_gmt', 'N/A')}")
             print(f"  Duration: {call.get('duration', 'N/A')}")
-            print(f"  From: {call.get('from', 'N/A')}")
-            print(f"  To: {call.get('to', 'N/A')}")
-            print(f"  Status: {call.get('status', 'N/A')}")
+            print(f"  From: {call.get('from_username', 'N/A')}")
+            print(f"  To: {call.get('to_username', 'N/A')}")
+            print(f"  Flow: {call.get('flow', 'N/A')}")
+            print(f"  Result: {call.get('result', 'N/A')}")
             print()
     
     print("Telphin API integration test completed successfully!")
