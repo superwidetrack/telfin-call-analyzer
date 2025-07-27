@@ -2,10 +2,54 @@ import os
 import requests
 import openai
 import asyncio
+import json
 from telegram import Bot
 from dotenv import load_dotenv
 
 load_dotenv()
+
+PROCESSED_CALLS_FILE = "processed_calls.json"
+
+def load_processed_calls():
+    """
+    Load the list of already processed call IDs from JSON file.
+    
+    Returns:
+        set: Set of processed call IDs
+    """
+    try:
+        if os.path.exists(PROCESSED_CALLS_FILE):
+            with open(PROCESSED_CALLS_FILE, 'r') as f:
+                data = json.load(f)
+                return set(data.get('processed_calls', []))
+        return set()
+    except Exception as e:
+        print(f"Error loading processed calls: {e}")
+        return set()
+
+def save_processed_call(call_id):
+    """
+    Add a call ID to the processed calls file.
+    
+    Args:
+        call_id (str): Call ID to mark as processed
+    """
+    try:
+        processed_calls = load_processed_calls()
+        processed_calls.add(call_id)
+        
+        from datetime import datetime
+        data = {
+            'processed_calls': list(processed_calls),
+            'last_updated': datetime.now().isoformat()
+        }
+        
+        with open(PROCESSED_CALLS_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+            
+        print(f"✅ Marked call {call_id} as processed")
+    except Exception as e:
+        print(f"Error saving processed call: {e}")
 
 def authenticate_telfin(hostname, login, password):
     """
@@ -67,7 +111,7 @@ def get_recent_calls(hostname, token, client_id="@me"):
     from datetime import datetime, timedelta
     
     end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     
     calls_url = f"https://{hostname}/api/ver1.0/client/{client_id}/calls/"
     
@@ -126,7 +170,7 @@ def get_call_cdr(hostname, token, call_uuid):
     from datetime import datetime, timedelta
     
     end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     
     cdr_url = f"https://{hostname}/api/ver1.0/client/@me/cdr/"
     
@@ -500,29 +544,35 @@ def main():
         print("Authentication failed. Cannot proceed.")
         return
     
-    print("\n2. Retrieving recent calls...")
+    print("\n2. Loading processed calls history...")
+    processed_calls = load_processed_calls()
+    print(f"Found {len(processed_calls)} previously processed calls")
+    
+    print("\n3. Retrieving recent calls...")
     calls = get_recent_calls(hostname, token)
     
     if calls is None:
         print("Failed to retrieve calls.")
         return
     
-    print(f"\n3. Processing {len(calls)} calls...")
+    new_calls = [call for call in calls if call.get('call_uuid') not in processed_calls]
     
-    if not calls:
-        print("No calls found to process.")
+    print(f"Found {len(calls)} total calls, {len(new_calls)} new calls to process")
+    
+    if not new_calls:
+        print("✅ No new calls to process. All recent calls have been analyzed.")
         return
     
     processed_count = 0
     successful_reports = 0
     
-    for i, call in enumerate(calls):
+    for i, call in enumerate(new_calls):
         call_uuid = call.get('call_uuid')
         
         if not call_uuid:
             continue
             
-        print(f"\nProcessing call {i+1}/{len(calls)}: {call_uuid}")
+        print(f"\nProcessing new call {i+1}/{len(new_calls)}: {call_uuid}")
         print(f"  Details: {call.get('start_time_gmt')} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
         
         audio_data = download_recording(hostname, token, call_uuid)
@@ -565,18 +615,22 @@ def main():
                     
                     if telegram_success:
                         successful_reports += 1
+                        save_processed_call(call_uuid)
                         print("✅ Report sent to Telegram successfully!")
                     else:
                         print("❌ Failed to send Telegram report")
+                        print("⚠️  Call will be retried next time due to Telegram failure")
                 else:
                     print("❌ GPT-4 analysis failed")
             else:
                 print("❌ Transcription failed")
         else:
             print(f"❌ No recording available")
+            save_processed_call(call_uuid)
     
     print(f"\n=== Analysis Complete ===")
-    print(f"Total calls checked: {len(calls)}")
+    print(f"Total calls retrieved: {len(calls)}")
+    print(f"New calls processed: {len(new_calls)}")
     print(f"Calls with recordings: {processed_count}")
     print(f"Successful reports sent: {successful_reports}")
     print("Call analysis cycle completed.")
