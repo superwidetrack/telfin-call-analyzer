@@ -110,8 +110,9 @@ def get_recent_calls(hostname, token, client_id="@me"):
     """
     from datetime import datetime, timedelta
     
+    time_window_hours = int(os.environ.get("TIME_WINDOW_HOURS", "6"))
     end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (datetime.now() - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
     
     calls_url = f"https://{hostname}/api/ver1.0/client/{client_id}/calls/"
     
@@ -134,14 +135,14 @@ def get_recent_calls(hostname, token, client_id="@me"):
         
         if isinstance(calls_data, dict) and 'calls' in calls_data:
             calls_list = calls_data['calls']
-            print(f"Successfully retrieved {len(calls_list)} calls")
+            print(f"Successfully retrieved {len(calls_list)} calls (last {time_window_hours} hours)")
             return calls_list
         elif isinstance(calls_data, list):
-            print(f"Successfully retrieved {len(calls_data)} calls")
+            print(f"Successfully retrieved {len(calls_data)} calls (last {time_window_hours} hours)")
             return calls_data
         elif isinstance(calls_data, dict) and 'results' in calls_data:
             calls_list = calls_data['results']
-            print(f"Successfully retrieved {len(calls_list)} calls")
+            print(f"Successfully retrieved {len(calls_list)} calls (last {time_window_hours} hours)")
             return calls_list
         else:
             print("Unexpected response format for calls data")
@@ -169,8 +170,9 @@ def get_call_cdr(hostname, token, call_uuid):
     """
     from datetime import datetime, timedelta
     
+    time_window_hours = int(os.environ.get("TIME_WINDOW_HOURS", "6"))
     end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (datetime.now() - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
     
     cdr_url = f"https://{hostname}/api/ver1.0/client/@me/cdr/"
     
@@ -186,7 +188,7 @@ def get_call_cdr(hostname, token, call_uuid):
     }
     
     try:
-        print(f"Getting CDR data to find recording info for call {call_uuid}...")
+        print(f"Getting CDR data to find recording info for call {call_uuid} (last {time_window_hours} hours)...")
         response = requests.get(cdr_url, headers=headers, params=params)
         response.raise_for_status()
         
