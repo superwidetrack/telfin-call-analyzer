@@ -5,6 +5,10 @@ import asyncio
 import json
 from telegram import Bot
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import pytz
+
+MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
 load_dotenv()
 
@@ -106,8 +110,9 @@ def get_recent_calls(hostname, token, client_id="@me"):
     from datetime import datetime, timedelta
     
     time_window_hours = int(os.environ.get("TIME_WINDOW_HOURS", "6"))
-    end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (datetime.now() - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    moscow_now = datetime.now(MOSCOW_TZ)
+    end_datetime = moscow_now.strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (moscow_now - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
     
     calls_url = f"https://{hostname}/api/ver1.0/client/{client_id}/calls/"
     
@@ -166,8 +171,9 @@ def get_call_cdr(hostname, token, call_uuid):
     from datetime import datetime, timedelta
     
     time_window_hours = int(os.environ.get("TIME_WINDOW_HOURS", "6"))
-    end_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (datetime.now() - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    moscow_now = datetime.now(MOSCOW_TZ)
+    end_datetime = moscow_now.strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (moscow_now - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
     
     cdr_url = f"https://{hostname}/api/ver1.0/client/@me/cdr/"
     
@@ -334,6 +340,7 @@ def transcribe_with_yandex(api_key, audio_data):
                     
                     if duration > 30:
                         print(f"⚠️ Skipping transcription: audio duration ({duration:.1f}s) exceeds Yandex SpeechKit limit of 30s")
+                        import os
                         os.unlink(mp3_path)
                         return "Аудиозапись слишком длинная для транскрипции (более 30 секунд)"
                 except ValueError:
@@ -542,8 +549,7 @@ async def send_telegram_report(report_text):
         bot = Bot(token=bot_token)
         await bot.send_message(
             chat_id=chat_id,
-            text=report_text,
-            parse_mode='Markdown'
+            text=report_text
         )
         
         print("✅ Report sent to Telegram successfully!")
@@ -609,8 +615,16 @@ def main():
         if not call_uuid:
             continue
             
+        call_time_str = call.get('start_time_gmt', 'N/A')
+        try:
+            call_time_utc = datetime.strptime(call_time_str, "%Y-%m-%d %H:%M:%S")
+            call_time_moscow = call_time_utc.replace(tzinfo=pytz.UTC).astimezone(MOSCOW_TZ)
+            moscow_time_str = call_time_moscow.strftime("%Y-%m-%d %H:%M:%S MSK")
+        except (ValueError, TypeError):
+            moscow_time_str = call_time_str
+        
         print(f"\nProcessing new call {i+1}/{len(new_calls)}: {call_uuid}")
-        print(f"  Details: {call.get('start_time_gmt')} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
+        print(f"  Details: {moscow_time_str} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
         
         audio_data = download_recording(hostname, token, call_uuid)
         
@@ -663,10 +677,18 @@ def main():
                     caller_number = clean_phone_number(caller_number)
                     called_number = clean_phone_number(called_number)
                     
+                    call_time_str = call.get('start_time_gmt', 'N/A')
+                    try:
+                        call_time_utc = datetime.strptime(call_time_str, "%Y-%m-%d %H:%M:%S")
+                        call_time_moscow = call_time_utc.replace(tzinfo=pytz.UTC).astimezone(MOSCOW_TZ)
+                        moscow_time_str = call_time_moscow.strftime("%d.%m.%Y %H:%M MSK")
+                    except (ValueError, TypeError):
+                        moscow_time_str = call_time_str
+                    
                     final_report = f"""{call_type_emoji}
 
 📞 **Звонок:** с {caller_number} на {called_number}
-🗓️ **Дата:** {call.get('start_time_gmt', 'N/A')}
+🗓️ **Дата:** {moscow_time_str}
 ⏱️ **Длительность:** {call.get('duration', 'N/A')} сек
 📊 **Результат:** {call.get('result', 'N/A')}
 
@@ -730,7 +752,10 @@ def web_handler():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    if os.environ.get("PORT"):
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "scheduler":
+        main()
+    elif os.environ.get("PORT"):
         web_handler()
     else:
         main()
