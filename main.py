@@ -16,37 +16,54 @@ PROCESSED_CALLS_FILE = "processed_calls.json"
 
 def load_processed_calls():
     """
-    Load the list of already processed call IDs from environment variable (Heroku-compatible).
+    Load the list of already processed call IDs from persistent file storage.
     
     Returns:
         set: Set of processed call IDs
     """
     try:
-        processed_calls_str = os.environ.get("PROCESSED_CALLS", "")
-        if processed_calls_str:
-            return set(processed_calls_str.split(","))
+        processed_calls_file = "processed_calls.txt"
+        if os.path.exists(processed_calls_file):
+            with open(processed_calls_file, 'r') as f:
+                call_ids = f.read().strip().split('\n')
+                return set(call_id.strip() for call_id in call_ids if call_id.strip())
         return set()
     except Exception as e:
         print(f"Error loading processed calls: {e}")
         return set()
 
-def save_processed_call(call_id):
+def save_processed_call(call_id, status="success"):
     """
-    Save processed call to environment variable (Heroku-compatible).
-    Note: This is temporary storage that resets on app restart.
+    Save processed call to persistent file storage with status tracking.
     
     Args:
         call_id (str): Call ID to mark as processed
+        status (str): Processing status ("success", "error", "no_recording")
     """
     try:
-        processed_calls = load_processed_calls()
-        processed_calls.add(call_id)
+        processed_calls_file = "processed_calls.txt"
         
-        if len(processed_calls) > 100:
-            processed_calls = set(list(processed_calls)[-100:])
+        existing_calls = load_processed_calls()
         
-        os.environ["PROCESSED_CALLS"] = ",".join(processed_calls)
-        print(f"✅ Marked call {call_id} as processed")
+        if call_id not in existing_calls:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            with open(processed_calls_file, 'a') as f:
+                f.write(f"{call_id}\n")
+            
+            print(f"✅ Marked call {call_id} as processed ({status}) at {timestamp}")
+            
+            all_calls = load_processed_calls()
+            if len(all_calls) > 1000:
+                recent_calls = list(all_calls)[-1000:]
+                with open(processed_calls_file, 'w') as f:
+                    for call in recent_calls:
+                        f.write(f"{call}\n")
+                print(f"Trimmed processed calls file to last 1000 entries")
+        else:
+            print(f"⚠️ Call {call_id} already marked as processed, skipping duplicate")
+            
     except Exception as e:
         print(f"Error saving processed call: {e}")
 
@@ -560,7 +577,7 @@ def analyze_with_gpt(transcript):
         print("Sending transcript to OpenAI GPT-4 for analysis...")
         
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
                 {"role": "user", "content": prompt}
             ],
@@ -779,18 +796,21 @@ def main():
                     
                     if telegram_success:
                         successful_reports += 1
-                        save_processed_call(call_uuid)
+                        save_processed_call(call_uuid, "success")
                         print("✅ Report sent to Telegram successfully!")
                     else:
                         print("❌ Failed to send Telegram report")
-                        print("⚠️  Call will be retried next time due to Telegram failure")
+                        save_processed_call(call_uuid, "telegram_error")
+                        print("⚠️ Call marked as processed despite Telegram failure to prevent infinite retry")
                 else:
                     print("❌ GPT-4 analysis failed")
+                    save_processed_call(call_uuid, "gpt_error")
             else:
                 print("❌ Transcription failed")
+                save_processed_call(call_uuid, "transcription_error")
         else:
             print(f"❌ No recording available")
-            save_processed_call(call_uuid)
+            save_processed_call(call_uuid, "no_recording")
     
     print(f"\n=== Analysis Complete ===")
     print(f"Total calls retrieved: {len(calls)}")
