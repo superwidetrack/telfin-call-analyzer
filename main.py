@@ -321,6 +321,24 @@ def transcribe_with_yandex(api_key, audio_data):
                 mp3_file.write(audio_data)
                 mp3_path = mp3_file.name
             
+            duration_cmd = [
+                'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                '-of', 'csv=p=0', mp3_path
+            ]
+            
+            duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
+            if duration_result.returncode == 0:
+                try:
+                    duration = float(duration_result.stdout.strip())
+                    print(f"Audio duration: {duration:.1f} seconds")
+                    
+                    if duration > 30:
+                        print(f"⚠️ Skipping transcription: audio duration ({duration:.1f}s) exceeds Yandex SpeechKit limit of 30s")
+                        os.unlink(mp3_path)
+                        return "Аудиозапись слишком длинная для транскрипции (более 30 секунд)"
+                except ValueError:
+                    print("Could not parse audio duration, proceeding with conversion...")
+            
             with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as ogg_file:
                 ogg_path = ogg_file.name
             
@@ -689,5 +707,30 @@ def main():
     print(f"Successful reports sent: {successful_reports}")
     print("Call analysis cycle completed.")
 
+def web_handler():
+    """Web handler for Heroku that binds to PORT immediately"""
+    import os
+    from flask import Flask
+    
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def health_check():
+        return "Call Analyzer is running", 200
+    
+    @app.route('/process')
+    def process_calls():
+        try:
+            main()
+            return "Call processing completed", 200
+        except Exception as e:
+            return f"Error: {str(e)}", 500
+    
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
-    main()
+    if os.environ.get("PORT"):
+        web_handler()
+    else:
+        main()
