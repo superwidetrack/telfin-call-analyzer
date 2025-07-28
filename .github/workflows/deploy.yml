@@ -1,0 +1,25 @@
+name: Deploy to Heroku
+
+on:
+  push:
+    branches: [ devin/1753613763-telphin-api-integration ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Build and deploy to Heroku
+      uses: akhileshns/heroku-deploy@v3.12.14
+      with:
+        heroku_api_key: ${{secrets.HEROKU_API_KEY}}
+        heroku_app_name: "roz29-call-analyzer"
+        heroku_email: "superwidetrack@gmail.com"
+        usedocker: true
+        docker_build_args: |
+          NODE_ENV
+        region: "us"
