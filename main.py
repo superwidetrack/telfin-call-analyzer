@@ -423,6 +423,64 @@ def transcribe_with_yandex(api_key, audio_data):
         print(f"Unexpected error during transcription: {e}")
         return None
 
+def transcribe_with_openai(api_key, audio_data):
+    """
+    Transcribe audio data using OpenAI Whisper API as fallback for longer recordings.
+    
+    Args:
+        api_key (str): OpenAI API key
+        audio_data (bytes): Binary audio content to transcribe
+    
+    Returns:
+        str: Transcribed text if successful, None if failed
+    """
+    if not api_key:
+        print("Error: OPENAI_API_KEY not configured")
+        return None
+        
+    if not audio_data:
+        print("Error: No audio data provided")
+        return None
+    
+    if len(audio_data) > 25 * 1024 * 1024:
+        print(f"Error: Audio file too large ({len(audio_data)} bytes). Maximum size is 25 MB.")
+        return None
+    
+    try:
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
+            temp_file.write(audio_data)
+            temp_path = temp_file.name
+        
+        print(f"Sending {len(audio_data)} bytes to OpenAI Whisper for transcription...")
+        
+        client = openai.OpenAI(api_key=api_key)
+        
+        with open(temp_path, 'rb') as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="ru"
+            )
+        
+        import os
+        os.unlink(temp_path)
+        
+        transcribed_text = transcript.text
+        print(f"OpenAI Whisper transcription successful: {len(transcribed_text)} characters")
+        return transcribed_text
+        
+    except Exception as e:
+        print(f"Error during OpenAI Whisper transcription: {e}")
+        if 'temp_path' in locals():
+            import os
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+        return None
+
 def analyze_with_gpt(transcript):
     """
     Analyze call transcript using OpenAI GPT-4 for quality assessment.
@@ -632,8 +690,20 @@ def main():
             processed_count += 1
             print(f"✅ Recording found! Processing...")
             
-            # Transcribe with Yandex SpeechKit
+            # Transcribe with Yandex SpeechKit first, fallback to OpenAI for longer recordings
             transcribed_text = transcribe_with_yandex(yandex_api_key, audio_data)
+            
+            if transcribed_text == "Аудиозапись слишком длинная для транскрипции (более 30 секунд)":
+                print("Yandex SpeechKit duration limit exceeded, trying OpenAI Whisper...")
+                openai_api_key = os.environ.get("OPENAI_API_KEY")
+                if openai_api_key:
+                    transcribed_text = transcribe_with_openai(openai_api_key, audio_data)
+                    if transcribed_text:
+                        print("✅ OpenAI Whisper transcription completed")
+                    else:
+                        print("❌ OpenAI Whisper transcription failed")
+                else:
+                    print("❌ OPENAI_API_KEY not configured, cannot use fallback transcription")
             
             if transcribed_text:
                 print(f"✅ Transcription completed")
