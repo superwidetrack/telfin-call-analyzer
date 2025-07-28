@@ -12,16 +12,15 @@ PROCESSED_CALLS_FILE = "processed_calls.json"
 
 def load_processed_calls():
     """
-    Load the list of already processed call IDs from JSON file.
+    Load the list of already processed call IDs from environment variable (Heroku-compatible).
     
     Returns:
         set: Set of processed call IDs
     """
     try:
-        if os.path.exists(PROCESSED_CALLS_FILE):
-            with open(PROCESSED_CALLS_FILE, 'r') as f:
-                data = json.load(f)
-                return set(data.get('processed_calls', []))
+        processed_calls_str = os.environ.get("PROCESSED_CALLS", "")
+        if processed_calls_str:
+            return set(processed_calls_str.split(","))
         return set()
     except Exception as e:
         print(f"Error loading processed calls: {e}")
@@ -29,7 +28,8 @@ def load_processed_calls():
 
 def save_processed_call(call_id):
     """
-    Add a call ID to the processed calls file.
+    Save processed call to environment variable (Heroku-compatible).
+    Note: This is temporary storage that resets on app restart.
     
     Args:
         call_id (str): Call ID to mark as processed
@@ -38,15 +38,10 @@ def save_processed_call(call_id):
         processed_calls = load_processed_calls()
         processed_calls.add(call_id)
         
-        from datetime import datetime
-        data = {
-            'processed_calls': list(processed_calls),
-            'last_updated': datetime.now().isoformat()
-        }
+        if len(processed_calls) > 100:
+            processed_calls = set(list(processed_calls)[-100:])
         
-        with open(PROCESSED_CALLS_FILE, 'w') as f:
-            json.dump(data, f, indent=2)
-            
+        os.environ["PROCESSED_CALLS"] = ",".join(processed_calls)
         print(f"✅ Marked call {call_id} as processed")
     except Exception as e:
         print(f"Error saving processed call: {e}")
@@ -631,8 +626,24 @@ def main():
                     elif "ДРУГОЕ" in analysis:
                         call_type_emoji = "📋 ДРУГОЕ"
                     
-                    caller_number = call.get('caller_number', 'N/A')
-                    called_number = call.get('called_number', 'N/A')
+                    def clean_phone_number(number):
+                        if number and number != 'N/A':
+                            return number.split('@')[0]
+                        return number
+                    
+                    from_number = call.get('from_username', 'N/A')
+                    to_number = call.get('to_username', 'N/A') 
+                    bridged_number = call.get('bridged_username', 'N/A')
+                    
+                    if call.get('flow') == 'out':
+                        caller_number = from_number
+                        called_number = to_number if to_number != 'N/A' else bridged_number
+                    else:
+                        caller_number = bridged_number if bridged_number != 'N/A' else from_number
+                        called_number = to_number
+                    
+                    caller_number = clean_phone_number(caller_number)
+                    called_number = clean_phone_number(called_number)
                     
                     final_report = f"""{call_type_emoji}
 
