@@ -684,7 +684,25 @@ def main():
     processed_count = 0
     successful_reports = 0
     
-    for i, call in enumerate(new_calls):
+    incoming_calls = []
+    for call in new_calls:
+        flow = call.get('flow', '')
+        duration = call.get('duration', 0)
+        bridged_duration = call.get('bridged_duration', 0)
+        
+        if flow == 'in' and (duration > 0 or bridged_duration > 0):
+            incoming_calls.append(call)
+        else:
+            call_uuid = call.get('call_uuid')
+            print(f"Skipping call {call_uuid}: flow={flow}, duration={duration}s (not incoming with duration)")
+    
+    print(f"Filtered to {len(incoming_calls)} incoming calls with duration from {len(new_calls)} new calls")
+    
+    if not incoming_calls:
+        print("✅ No incoming calls with recordings to process.")
+        return
+    
+    for i, call in enumerate(incoming_calls):
         call_uuid = call.get('call_uuid')
         
         if not call_uuid:
@@ -698,7 +716,7 @@ def main():
         except (ValueError, TypeError):
             moscow_time_str = call_time_str
         
-        print(f"\nProcessing new call {i+1}/{len(new_calls)}: {call_uuid}")
+        print(f"\nProcessing incoming call {i+1}/{len(incoming_calls)}: {call_uuid}")
         print(f"  Details: {moscow_time_str} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
         
         audio_data = download_recording(hostname, token, call_uuid)
@@ -814,7 +832,8 @@ def main():
     
     print(f"\n=== Analysis Complete ===")
     print(f"Total calls retrieved: {len(calls)}")
-    print(f"New calls processed: {len(new_calls)}")
+    print(f"New calls found: {len(new_calls)}")
+    print(f"Incoming calls with duration: {len(incoming_calls) if 'incoming_calls' in locals() else 0}")
     print(f"Calls with recordings: {processed_count}")
     print(f"Successful reports sent: {successful_reports}")
     print("Call analysis cycle completed.")
