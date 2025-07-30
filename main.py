@@ -128,8 +128,9 @@ def get_recent_calls(hostname, token, client_id="@me"):
     
     time_window_hours = int(os.environ.get("TIME_WINDOW_HOURS", "6"))
     moscow_now = datetime.now(MOSCOW_TZ)
-    end_datetime = moscow_now.strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (moscow_now - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    moscow_now_utc = moscow_now.astimezone(pytz.UTC)
+    end_datetime = moscow_now_utc.strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (moscow_now_utc - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
     
     calls_url = f"https://{hostname}/api/ver1.0/client/{client_id}/calls/"
     
@@ -189,8 +190,9 @@ def get_call_cdr(hostname, token, call_uuid):
     
     time_window_hours = int(os.environ.get("TIME_WINDOW_HOURS", "6"))
     moscow_now = datetime.now(MOSCOW_TZ)
-    end_datetime = moscow_now.strftime("%Y-%m-%d %H:%M:%S")
-    start_datetime = (moscow_now - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    moscow_now_utc = moscow_now.astimezone(pytz.UTC)
+    end_datetime = moscow_now_utc.strftime("%Y-%m-%d %H:%M:%S")
+    start_datetime = (moscow_now_utc - timedelta(hours=time_window_hours)).strftime("%Y-%m-%d %H:%M:%S")
     
     cdr_url = f"https://{hostname}/api/ver1.0/client/@me/cdr/"
     
