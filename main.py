@@ -634,6 +634,27 @@ async def send_telegram_report(report_text):
         print(f"Error sending Telegram report: {e}")
         return False
 
+def has_recording(hostname, token, call_uuid):
+    """
+    Check if a call has an audio recording available by checking CDR data.
+    
+    Args:
+        hostname (str): Telphin hostname
+        token (str): Bearer token from authentication
+        call_uuid (str): UUID of the call to check
+    
+    Returns:
+        tuple: (has_recording: bool, file_size: int)
+    """
+    try:
+        cdr_record = get_call_cdr(hostname, token, call_uuid)
+        if cdr_record and cdr_record.get('record_file_size', 0) > 0:
+            return True, cdr_record.get('record_file_size', 0)
+        return False, 0
+    except Exception as e:
+        print(f"Error checking recording for {call_uuid}: {e}")
+        return False, 0
+
 def main():
     """
     Main function for automated call analysis system.
@@ -684,29 +705,37 @@ def main():
     processed_count = 0
     successful_reports = 0
     
-    incoming_calls = []
+    print("\n4. Filtering for incoming calls with recordings...")
+    incoming_calls_with_recordings = []
+    
     for call in new_calls:
         flow = call.get('flow', '')
-        duration = call.get('duration', 0)
-        bridged_duration = call.get('bridged_duration', 0)
+        call_uuid = call.get('call_uuid')
         
-        if flow == 'in' and (duration > 0 or bridged_duration > 0):
-            incoming_calls.append(call)
+        if flow != 'in':
+            print(f"Skipping call {call_uuid}: flow={flow} (not incoming)")
+            continue
+            
+        if not call_uuid:
+            print(f"Skipping call: missing call_uuid")
+            continue
+            
+        has_rec, rec_size = has_recording(hostname, token, call_uuid)
+        
+        if has_rec:
+            incoming_calls_with_recordings.append(call)
+            print(f"✅ Found incoming call with recording: {call_uuid} ({rec_size} bytes)")
         else:
-            call_uuid = call.get('call_uuid')
-            print(f"Skipping call {call_uuid}: flow={flow}, duration={duration}s (not incoming with duration)")
+            print(f"Skipping call {call_uuid}: no recording available")
     
-    print(f"Filtered to {len(incoming_calls)} incoming calls with duration from {len(new_calls)} new calls")
+    print(f"Filtered to {len(incoming_calls_with_recordings)} incoming calls with recordings from {len(new_calls)} new calls")
     
-    if not incoming_calls:
+    if not incoming_calls_with_recordings:
         print("✅ No incoming calls with recordings to process.")
         return
     
-    for i, call in enumerate(incoming_calls):
+    for i, call in enumerate(incoming_calls_with_recordings):
         call_uuid = call.get('call_uuid')
-        
-        if not call_uuid:
-            continue
             
         call_time_str = call.get('start_time_gmt', 'N/A')
         try:
@@ -716,7 +745,7 @@ def main():
         except (ValueError, TypeError):
             moscow_time_str = call_time_str
         
-        print(f"\nProcessing incoming call {i+1}/{len(incoming_calls)}: {call_uuid}")
+        print(f"\nProcessing incoming call {i+1}/{len(incoming_calls_with_recordings)}: {call_uuid}")
         print(f"  Details: {moscow_time_str} | {call.get('duration')}s | {call.get('flow')} | {call.get('result')}")
         
         audio_data = download_recording(hostname, token, call_uuid)
@@ -833,8 +862,8 @@ def main():
     print(f"\n=== Analysis Complete ===")
     print(f"Total calls retrieved: {len(calls)}")
     print(f"New calls found: {len(new_calls)}")
-    print(f"Incoming calls with duration: {len(incoming_calls) if 'incoming_calls' in locals() else 0}")
-    print(f"Calls with recordings: {processed_count}")
+    print(f"Incoming calls with recordings: {len(incoming_calls_with_recordings) if 'incoming_calls_with_recordings' in locals() else 0}")
+    print(f"Calls processed: {processed_count}")
     print(f"Successful reports sent: {successful_reports}")
     print("Call analysis cycle completed.")
 
